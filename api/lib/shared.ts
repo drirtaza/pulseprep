@@ -31,6 +31,9 @@ function getFromAddress() {
 function getAppName() {
   return process.env.EMAIL_APP_NAME || 'PulsePrep';
 }
+function getFromEmail() {
+  return process.env.FROM_EMAIL || getFromAddress();
+}
 
 // --- supabase (service role) ---
 let supa: SupabaseClient | null = null;
@@ -96,6 +99,34 @@ export async function sendSignupOtpEmail(
   });
   if (error) throw new Error(error.message || 'Resend request failed');
   return data;
+}
+
+export async function sendTransactionalEmail(input: {
+  to: string;
+  subject: string;
+  htmlContent: string;
+  textContent: string;
+}) {
+  const from = getFromEmail();
+  const { data, error } = await resendClient().emails.send({
+    from,
+    to: [normalizeEmail(input.to)],
+    subject: input.subject,
+    html: input.htmlContent,
+    text: input.textContent
+  });
+  if (error) throw new Error(error.message || 'Resend request failed');
+  return data;
+}
+
+export function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+export function parseJsonBody<T>(rawBody: unknown): T {
+  if (typeof rawBody === 'string') return JSON.parse(rawBody) as T;
+  if (rawBody && typeof rawBody === 'object') return rawBody as T;
+  throw new Error('Invalid JSON');
 }
 
 // --- jwt ---
