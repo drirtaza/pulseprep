@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ComponentType } from 'react';
 import { getContentSettings, subscribeToContentChanges } from '../utils/contentSettings';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
@@ -22,11 +22,11 @@ import {
   Lightbulb,
   CheckCircle,
   ExternalLink,
-  Facebook,
-  Twitter,
-  Instagram,
-  Linkedin,
-  Youtube,
+  Share2,
+  AtSign,
+  Camera,
+  Briefcase,
+  Play,
   Globe
 } from 'lucide-react';
 
@@ -188,6 +188,14 @@ export default function ContactPage({ onNavigate }: ContactPageProps) {
     { id: "fallback-social-4", name: "LinkedIn", icon: "Linkedin", url: "#", color: "bg-blue-700", isActive: true, displayOrder: 4 },
     { id: "fallback-social-5", name: "YouTube", icon: "Youtube", url: "#", color: "bg-red-600", isActive: true, displayOrder: 5 }
   ];
+  const socialIconMap: Record<string, ComponentType<{ className?: string }>> = {
+    Facebook: Share2,
+    Twitter: AtSign,
+    Instagram: Camera,
+    Linkedin: Briefcase,
+    Youtube: Play,
+    Globe
+  };
 
   const faqs = [
     {
@@ -468,22 +476,8 @@ export default function ContactPage({ onNavigate }: ContactPageProps) {
                     className={`${social.color} hover:opacity-80 transition-opacity p-2 rounded-lg`}
                   >
                     {(() => {
-                      switch (social.icon) {
-                        case 'Facebook':
-                          return <Facebook className="h-5 w-5 text-white" />;
-                        case 'Twitter':
-                          return <Twitter className="h-5 w-5 text-white" />;
-                        case 'Instagram':
-                          return <Instagram className="h-5 w-5 text-white" />;
-                        case 'Linkedin':
-                          return <Linkedin className="h-5 w-5 text-white" />;
-                        case 'Youtube':
-                          return <Youtube className="h-5 w-5 text-white" />;
-                        case 'Globe':
-                          return <Globe className="h-5 w-5 text-white" />;
-                        default:
-                          return <Globe className="h-5 w-5 text-white" />;
-                      }
+                      const Icon = socialIconMap[social.icon] ?? Globe;
+                      return <Icon className="h-5 w-5 text-white" />;
                     })()}
                   </a>
                 ))}
