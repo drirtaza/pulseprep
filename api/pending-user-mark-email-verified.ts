@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleCors, normalizeEmail, parseJsonBody } from './lib/shared';
-import { supabaseAdmin } from './_supabaseAdmin';
+import { getSupabaseAdmin, handleCors, normalizeEmail, parseJsonBody } from './lib/shared';
 
 type Body = { email: string; verified?: boolean };
 
@@ -24,7 +23,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad(res, 400, 'Valid email is required');
 
   const patch = { email_verified: verified, updated_at: new Date().toISOString() };
-  const supabase = supabaseAdmin();
+  const supabase = getSupabaseAdmin();
 
   const [pendingResult, usersResult] = await Promise.all([
     supabase.from('pending_users').update(patch).eq('email', email).select('id').maybeSingle(),

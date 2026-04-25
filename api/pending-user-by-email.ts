@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleCors, normalizeEmail, parseJsonBody } from './lib/shared';
-import { supabaseAdmin } from './_supabaseAdmin';
+import { getSupabaseAdmin, handleCors, normalizeEmail, parseJsonBody } from './lib/shared';
 
 function bad(res: VercelResponse, code: number, error: string) {
   return res.status(code).json({ ok: false, error });
@@ -25,7 +24,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const email = normalizeEmail(emailRaw || '');
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad(res, 400, 'Valid email is required');
 
-  const supabase = supabaseAdmin();
+  const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from('pending_users')
     .select('*')
