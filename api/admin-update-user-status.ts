@@ -3,9 +3,11 @@ import { getSupabaseAdmin, handleCors, normalizeEmail, parseJsonBody } from './l
 
 type Status = 'pending' | 'active' | 'rejected' | 'suspended';
 type PaymentStatus = 'pending' | 'completed' | 'rejected';
+type DbPaymentStatus = 'pending' | 'approved' | 'rejected';
 
 type Body = {
   email: string;
+  adminRole?: string;
   status?: Status;
   paymentStatus?: PaymentStatus;
   paymentDetails?: Record<string, unknown>;
@@ -19,6 +21,8 @@ type Body = {
   reviewNote?: string;
   reviewedBy?: string;
   metadata?: Record<string, unknown>;
+  subscriptionStartDate?: string;
+  subscriptionExpiryDate?: string;
 };
 
 function bad(res: VercelResponse, code: number, error: string, extra?: Record<string, unknown>) {
@@ -84,25 +88,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const supabase = getSupabaseAdmin();
+  const actorRole = typeof body.adminRole === 'string' ? body.adminRole.toLowerCase() : '';
+  const isDecisionAction = body.action === 'payment_approve' || body.status === 'rejected' || body.paymentStatus === 'rejected';
+  if (isDecisionAction && actorRole !== 'finance-manager' && actorRole !== 'super-admin') {
+    return bad(res, 403, 'Forbidden: only finance-manager or super-admin can approve/reject');
+  }
   const patch: Record<string, unknown> = {};
+  const normalizedPaymentStatus: DbPaymentStatus | undefined = body.paymentStatus
+    ? body.paymentStatus === 'completed'
+      ? 'approved'
+      : body.paymentStatus
+    : undefined;
   if (body.status) patch.status = body.status;
-  if (body.paymentStatus) patch.payment_status = body.paymentStatus;
+  if (normalizedPaymentStatus) patch.payment_status = normalizedPaymentStatus;
   if (typeof body.emailVerified === 'boolean') patch.email_verified = body.emailVerified;
   if (body.paymentDetails && typeof body.paymentDetails === 'object') patch.payment_details = body.paymentDetails;
   patch.updated_at = new Date().toISOString();
 
-  const [pendingUpdate, usersUpdate] = await Promise.all([
-    supabase.from('pending_users').update(patch).eq('email', email).select('id, email').maybeSingle(),
-    supabase.from('users').update(patch).eq('email', email).select('id, email').maybeSingle()
-  ]);
+  const shouldPatchPending = body.action !== 'payment_approve';
+  const pendingUpdate = shouldPatchPending
+    ? await supabase.from('pending_users').update(patch).eq('email', email).select('id, email').maybeSingle()
+    : { data: null, error: null };
+  const usersUpdate = await supabase.from('users').update(patch).eq('email', email).select('id, email').maybeSingle();
 
-  if (pendingUpdate.error) return bad(res, 500, `Failed to update pending_users: ${pendingUpdate.error.message}`);
+  if (shouldPatchPending && pendingUpdate.error) return bad(res, 500, `Failed to update pending_users: ${pendingUpdate.error.message}`);
   if (usersUpdate.error) return bad(res, 500, `Failed to update users: ${usersUpdate.error.message}`);
 
   const pendingHit = Boolean(pendingUpdate.data?.id);
   const usersHit = Boolean(usersUpdate.data?.id);
 
-  if (!pendingHit && !usersHit && body.action !== 'payment_attempt_review') {
+  if (!pendingHit && !usersHit && body.action !== 'payment_attempt_review' && body.action !== 'payment_approve') {
     return bad(res, 404, 'No matching email found in pending_users or users');
   }
 
@@ -113,25 +128,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     try {
       const userId = await ensureUserRowExists(supabase, email);
+      const subscriptionStartDate = new Date();
+
+      await supabase
+        .from('users')
+        .update({ payment_status: 'approved', status: body.status || 'active', updated_at: new Date().toISOString() })
+        .eq('id', userId);
+
+      const { error: pendingDeleteErr } = await supabase.from('pending_users').delete().eq('email', email);
+      if (pendingDeleteErr) return bad(res, 500, `Failed to delete pending_users after approval: ${pendingDeleteErr.message}`);
+
       const { error: paymentInsertErr } = await supabase.from('approved_payments').insert({
         user_id: userId,
         approved_amount: body.approvedAmount,
         approved_currency: body.approvedCurrency || 'PKR',
         payment_method: body.paymentMethod || null,
         transaction_reference: body.transactionReference || null,
-        metadata: body.metadata ?? {}
+        metadata: body.metadata ?? {},
+        subscription_start_date: body.subscriptionStartDate ?? subscriptionStartDate.toISOString()
       });
-      if (paymentInsertErr) return bad(res, 500, `Failed to insert approved_payments: ${paymentInsertErr.message}`);
-
-      await supabase
-        .from('users')
-        .update({ payment_status: 'completed', status: body.status || 'active', updated_at: new Date().toISOString() })
-        .eq('id', userId);
 
       return res.status(200).json({
         ok: true,
         message: 'Payment approved and user updated',
-        userId
+        userId,
+        movedFromPending: true,
+        paymentRecordLogged: !paymentInsertErr,
+        paymentRecordWarning: paymentInsertErr ? `approved_payments insert skipped: ${paymentInsertErr.message}` : null
       });
     } catch (e) {
       return bad(res, 500, e instanceof Error ? e.message : 'Payment approval failed');
@@ -170,12 +193,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
+  const isRejectFlow = body.status === 'rejected' || body.paymentStatus === 'rejected';
+  if (isRejectFlow) {
+    const { error: pendingDeleteErr } = await supabase.from('pending_users').delete().eq('email', email);
+    if (pendingDeleteErr) return bad(res, 500, `Failed to delete pending_users after rejection: ${pendingDeleteErr.message}`);
+  }
+
   return res.status(200).json({
     ok: true,
-    message: 'User status updated',
+    message: isRejectFlow ? 'User rejected and removed from pending' : 'User status updated',
     updated: {
       pendingUsers: pendingHit,
       users: usersHit
-    }
+    },
+    removedFromPending: isRejectFlow
   });
 }

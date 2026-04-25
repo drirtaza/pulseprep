@@ -51,9 +51,11 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
     const specialty: SpecialtyType =
       row?.specialty === 'surgery' || row?.specialty === 'gynae-obs' ? row.specialty : 'medicine';
     const paymentStatus =
-      row?.payment_status === 'completed' || row?.payment_status === 'rejected'
-        ? row.payment_status
-        : 'pending';
+      row?.payment_status === 'completed' || row?.payment_status === 'approved'
+        ? 'completed'
+        : row?.payment_status === 'rejected'
+          ? 'rejected'
+          : 'pending';
 
     return {
       id: row?.id || row?.email || crypto.randomUUID(),
@@ -345,6 +347,7 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
         status === 'completed'
           ? {
               email: user.email,
+              adminRole: admin.role,
               status: 'active',
               paymentStatus: 'completed',
               emailVerified: user.emailVerified,
@@ -356,6 +359,7 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
           : status === 'rejected'
             ? {
                 email: user.email,
+                adminRole: admin.role,
                 status: 'rejected',
                 paymentStatus: 'rejected',
                 emailVerified: user.emailVerified,
@@ -363,6 +367,7 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
               }
             : {
                 email: user.email,
+                adminRole: admin.role,
                 status: 'suspended',
                 paymentStatus: user.paymentStatus === 'completed' ? 'completed' : 'pending',
                 emailVerified: user.emailVerified,

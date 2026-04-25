@@ -27,8 +27,6 @@ import { Checkbox } from './ui/checkbox';
 import { AdminData, UserData } from '../types';
 import { 
   getPendingPayments, 
-  approvePayment, 
-  rejectPayment, 
   getPaymentHistory,
   getApprovedPayments
 } from '../utils/paymentVerification';
@@ -51,6 +49,30 @@ interface FinanceManagerDashboardProps {
   admin: AdminData;
   onLogout: () => void;
 }
+
+const mapApiUserToUserData = (row: any): UserData => ({
+  id: row?.id || row?.email || crypto.randomUUID(),
+  name: row?.name || row?.full_name || '',
+  fullName: row?.full_name || row?.name || '',
+  email: row?.email || '',
+  specialty: row?.specialty === 'surgery' || row?.specialty === 'gynae-obs' ? row.specialty : 'medicine',
+  studyMode: 'regular',
+  registrationDate: row?.registration_date || row?.created_at || new Date().toISOString(),
+  phone: row?.phone || '',
+  cnic: row?.cnic || '',
+  paymentStatus:
+    row?.payment_status === 'completed' || row?.payment_status === 'approved'
+      ? 'completed'
+      : row?.payment_status === 'rejected'
+        ? 'rejected'
+        : 'pending',
+  paymentDetails: row?.payment_details || {},
+  status: row?.status || 'pending',
+  paymentAttempts: [],
+  emailVerified: Boolean(row?.email_verified),
+  emailVerificationAttempts: 0,
+  emailVerificationStatus: row?.email_verified ? 'verified' : 'pending'
+});
 
 const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardProps) => {
   const [pendingPayments, setPendingPayments] = useState<UserData[]>([]);
@@ -115,10 +137,20 @@ const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardPro
   const refreshData = async () => {
     setIsLoading(true);
     try {
-      // ✅ FIXED: Use safe array validation for pending payments
-      const pending = getPendingPayments();
-      const validatedPending = Array.isArray(pending) ? pending : [];
-      setPendingPayments(validatedPending);
+      const pendingResp = await fetch('/api/admin-users-list?paymentStatus=pending');
+      if (pendingResp.ok) {
+        const pendingJson = await pendingResp.json();
+        const items = Array.isArray(pendingJson?.items) ? pendingJson.items : [];
+        const pending = items
+          .filter((row: any) => (row?.payment_status || 'pending') === 'pending')
+          .map(mapApiUserToUserData);
+        setPendingPayments(pending);
+      } else {
+        // Fallback to legacy local path if API is temporarily unavailable
+        const pending = getPendingPayments();
+        const validatedPending = Array.isArray(pending) ? pending : [];
+        setPendingPayments(validatedPending);
+      }
       
       // ✅ FIXED: Use safe array validation for payment history
       const history = getPaymentHistory();
@@ -219,13 +251,39 @@ const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardPro
 
   const handleApprovePayment = async (userId: string, userName: string) => {
     if (window.confirm(`Approve payment for ${userName}?`)) {
-      const success = approvePayment(userId, admin.id, admin.name);
-      if (success) {
+      const target = pendingPayments.find(p => p.id === userId);
+      if (!target?.email) {
+        alert('Could not resolve user email for approval.');
+        return;
+      }
+      const approvedAmount =
+        typeof target.paymentDetails?.amount === 'number' && target.paymentDetails.amount > 0
+          ? target.paymentDetails.amount
+          : paymentSettings?.paymentAmount || 7000;
+
+      const resp = await fetch('/api/admin-update-user-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: target.email,
+          adminRole: admin.role,
+          status: 'active',
+          paymentStatus: 'completed',
+          emailVerified: target.emailVerified,
+          paymentDetails: target.paymentDetails || {},
+          action: 'payment_approve',
+          approvedAmount,
+          approvedCurrency: target.paymentDetails?.currency || paymentSettings?.currency || 'PKR',
+          reviewedBy: admin.name
+        })
+      });
+      if (resp.ok) {
         alert('Payment approved successfully!');
         refreshData();
         setSelectedPayments(prev => prev.filter(id => id !== userId));
       } else {
-        alert('Error approving payment. Please try again.');
+        const message = await resp.text().catch(() => '');
+        alert(`Error approving payment. ${message || ''}`);
       }
     }
   };
@@ -245,15 +303,31 @@ const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardPro
     setRejectionModal(prev => ({ ...prev, isSubmitting: true }));
 
     try {
-      // Use existing rejectPayment function with reason
-      const success = rejectPayment(
-        rejectionModal.userId, 
-        reason, 
-        admin.id, 
-        admin.name
-      );
-      
-      if (success) {
+      const target = pendingPayments.find(p => p.id === rejectionModal.userId);
+      if (!target?.email) {
+        alert('Could not resolve user email for rejection.');
+        return;
+      }
+
+      const resp = await fetch('/api/admin-update-user-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: target.email,
+          adminRole: admin.role,
+          status: 'rejected',
+          paymentStatus: 'rejected',
+          emailVerified: target.emailVerified,
+          paymentDetails: {
+            ...(target.paymentDetails || {}),
+            rejectionReason: reason
+          },
+          reviewedBy: admin.name,
+          reviewNote: reason
+        })
+      });
+
+      if (resp.ok) {
         alert('Payment rejected successfully!');
         refreshData();
         setRejectionModal({
@@ -265,7 +339,8 @@ const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardPro
         });
         setSelectedPayments(prev => prev.filter(id => id !== rejectionModal.userId));
       } else {
-        alert('Error rejecting payment. Please try again.');
+        const message = await resp.text().catch(() => '');
+        alert(`Error rejecting payment. ${message || ''}`);
       }
     } catch (error) {
       console.error('Error rejecting payment:', error);
@@ -279,15 +354,38 @@ const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardPro
     if (selectedPayments.length === 0) return;
     
     if (window.confirm(`Approve ${selectedPayments.length} selected payments?`)) {
-      let successCount = 0;
-      selectedPayments.forEach(userId => {
-        if (approvePayment(userId, admin.id, admin.name)) {
-          successCount++;
+      (async () => {
+        let successCount = 0;
+        for (const userId of selectedPayments) {
+          const target = pendingPayments.find(p => p.id === userId);
+          if (!target?.email) continue;
+          const approvedAmount =
+            typeof target.paymentDetails?.amount === 'number' && target.paymentDetails.amount > 0
+              ? target.paymentDetails.amount
+              : paymentSettings?.paymentAmount || 7000;
+
+          const resp = await fetch('/api/admin-update-user-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: target.email,
+              adminRole: admin.role,
+              status: 'active',
+              paymentStatus: 'completed',
+              emailVerified: target.emailVerified,
+              paymentDetails: target.paymentDetails || {},
+              action: 'payment_approve',
+              approvedAmount,
+              approvedCurrency: target.paymentDetails?.currency || paymentSettings?.currency || 'PKR',
+              reviewedBy: admin.name
+            })
+          });
+          if (resp.ok) successCount++;
         }
-      });
-      alert(`${successCount} payments approved successfully!`);
-      setSelectedPayments([]);
-      refreshData();
+        alert(`${successCount} payments approved successfully!`);
+        setSelectedPayments([]);
+        refreshData();
+      })();
     }
   };
 
@@ -296,15 +394,34 @@ const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardPro
     
     const reason = window.prompt(`Reason for rejecting ${selectedPayments.length} selected payments:`);
     if (reason && reason.trim()) {
-      let successCount = 0;
-      selectedPayments.forEach(userId => {
-        if (rejectPayment(userId, reason.trim(), admin.id, admin.name)) {
-          successCount++;
+      (async () => {
+        let successCount = 0;
+        for (const userId of selectedPayments) {
+          const target = pendingPayments.find(p => p.id === userId);
+          if (!target?.email) continue;
+          const resp = await fetch('/api/admin-update-user-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: target.email,
+              adminRole: admin.role,
+              status: 'rejected',
+              paymentStatus: 'rejected',
+              emailVerified: target.emailVerified,
+              paymentDetails: {
+                ...(target.paymentDetails || {}),
+                rejectionReason: reason.trim()
+              },
+              reviewedBy: admin.name,
+              reviewNote: reason.trim()
+            })
+          });
+          if (resp.ok) successCount++;
         }
-      });
-      alert(`${successCount} payments rejected successfully!`);
-      setSelectedPayments([]);
-      refreshData();
+        alert(`${successCount} payments rejected successfully!`);
+        setSelectedPayments([]);
+        refreshData();
+      })();
     }
   };
 
