@@ -171,7 +171,7 @@ export default function ForgotPasswordPage({ onNavigate, selectedSpecialty }: Fo
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/auth/password-reset', {
+      const res = await fetch('/api/auth?action=password-reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() })

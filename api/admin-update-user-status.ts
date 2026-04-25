@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { randomBytes } from 'crypto';
 import { getSupabaseAdmin, handleCors, normalizeEmail, parseJsonBody } from './lib/shared';
 
 type Status = 'pending' | 'active' | 'rejected' | 'suspended';
@@ -27,6 +28,11 @@ type Body = {
 
 function bad(res: VercelResponse, code: number, error: string, extra?: Record<string, unknown>) {
   return res.status(code).json({ ok: false, error, ...(extra || {}) });
+}
+
+function looksLikeAlreadyExists(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return m.includes('registered') || m.includes('already exists') || m.includes('already been registered');
 }
 
 async function ensureUserRowExists(supabase: ReturnType<typeof getSupabaseAdmin>, email: string) {
@@ -129,6 +135,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const userId = await ensureUserRowExists(supabase, email);
       const subscriptionStartDate = new Date();
+
+      // Ensure there is a corresponding auth.users record for approved accounts.
+      // If it already exists, we continue silently.
+      const temporaryPassword = `${randomBytes(18).toString('hex')}A!9`;
+      const created = await supabase.auth.admin.createUser({
+        email,
+        password: temporaryPassword,
+        email_confirm: true
+      });
+      if (created.error && !looksLikeAlreadyExists(created.error.message || '')) {
+        console.warn('Non-fatal: failed to ensure auth user on approval', created.error.message);
+      }
 
       await supabase
         .from('users')

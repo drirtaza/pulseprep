@@ -1859,7 +1859,7 @@ export default function App() {
 
       if (typeof finalData.password === 'string' && finalData.password.length >= 8) {
         try {
-          const regRes = await fetch('/api/auth/register', {
+          const regRes = await fetch('/api/auth?action=register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

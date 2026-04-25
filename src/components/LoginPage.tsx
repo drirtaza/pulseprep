@@ -23,7 +23,6 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { LoginPageProps, UserData, SpecialtyType } from '../types';
-import { passwordService } from '../services/PasswordService';
 import { securityService } from '../services/SecurityService';
 import { getSupabaseBrowser } from '../lib/supabaseClient';
 
@@ -258,33 +257,20 @@ export default function LoginPage({ onNavigate, onLogin, selectedSpecialty }: Lo
 
     try {
       const supa = getSupabaseBrowser();
-      if (supa) {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email.trim(), password })
-        });
-        const j = (await res.json().catch(() => ({}))) as {
-          ok?: boolean;
-          error?: string;
-          session?: { access_token: string; refresh_token: string; expires_in?: number };
-          user?: Record<string, unknown>;
-        };
+      let apiAuthError = 'Invalid email or password.';
+      const res = await fetch('/api/auth?action=login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password })
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        session?: { access_token: string; refresh_token: string; expires_in?: number };
+        user?: Record<string, unknown>;
+      };
 
-        if (!res.ok || !j.ok || !j.session || !j.user) {
-          setIsLoading(false);
-          handleFailedLogin(email);
-          const attemptsRemaining = Math.max(0, 5 - (loginAttempts + 1));
-          let errorMessage = j.error || 'Invalid email or password.';
-          if (attemptsRemaining <= 2 && attemptsRemaining > 0) {
-            errorMessage += ` ${attemptsRemaining} attempts remaining before account lockout.`;
-          } else if (attemptsRemaining === 0) {
-            errorMessage = 'Account will be locked due to too many failed attempts.';
-          }
-          setErrors({ auth: errorMessage });
-          return;
-        }
-
+      if (res.ok && j.ok && j.session && j.user) {
         const u = j.user;
         if (u.status === 'suspended') {
           setIsLoading(false);
@@ -296,12 +282,14 @@ export default function LoginPage({ onNavigate, onLogin, selectedSpecialty }: Lo
           return;
         }
 
-        const { error: sessionErr } = await supa.auth.setSession({
-          access_token: j.session.access_token,
-          refresh_token: j.session.refresh_token
-        });
-        if (sessionErr) {
-          console.error('setSession', sessionErr);
+        if (supa) {
+          const { error: sessionErr } = await supa.auth.setSession({
+            access_token: j.session.access_token,
+            refresh_token: j.session.refresh_token
+          });
+          if (sessionErr) {
+            console.error('setSession', sessionErr);
+          }
         }
 
         const spec = u.specialty as string;
@@ -343,109 +331,20 @@ export default function LoginPage({ onNavigate, onLogin, selectedSpecialty }: Lo
         return;
       }
 
-      // Legacy: local all_users (no Supabase env)
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      let user: any = null;
-      let isPasswordValid = false;
-
-      const allUsers = JSON.parse(localStorage.getItem('all_users') || '[]');
-      const foundUser = allUsers.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
-
-      if (foundUser) {
-        if (foundUser.passwordSalt && foundUser.password) {
-          isPasswordValid = await passwordService.verifyPassword(password, foundUser.password, foundUser.passwordSalt);
-        } else if (foundUser.password) {
-          isPasswordValid = password === foundUser.password;
-          if (isPasswordValid) {
-            try {
-              const { hash, salt } = await passwordService.hashPassword(password);
-              foundUser.password = hash;
-              foundUser.passwordSalt = salt;
-              const userIndex = allUsers.findIndex((x: any) => x.email.toLowerCase() === email.toLowerCase());
-              if (userIndex !== -1) {
-                allUsers[userIndex] = foundUser;
-                localStorage.setItem('all_users', JSON.stringify(allUsers));
-              }
-            } catch (error) {
-              console.error('Failed to upgrade password hash', error);
-            }
-          }
-        } else {
-          setIsLoading(false);
-          setErrors({
-            auth: `Account setup incomplete. Please use "Forgot password" or contact support.`
-          });
-          return;
-        }
-        if (isPasswordValid) user = foundUser;
+      if (j.error && typeof j.error === 'string') {
+        apiAuthError = j.error;
       }
 
-      if (!user) {
-        const pendingUser = localStorage.getItem('pulseprep_user_pending');
-        if (pendingUser) {
-          const pendingData = JSON.parse(pendingUser);
-          if (pendingData.email.toLowerCase() === email.toLowerCase()) {
-            user = pendingData;
-            isPasswordValid = true;
-          }
-        }
+      setIsLoading(false);
+      handleFailedLogin(email);
+      const attemptsRemaining = Math.max(0, 5 - (loginAttempts + 1));
+      let errorMessage = apiAuthError || 'Invalid email or password.';
+      if (attemptsRemaining <= 2 && attemptsRemaining > 0) {
+        errorMessage += ` ${attemptsRemaining} attempts remaining before account lockout.`;
+      } else if (attemptsRemaining === 0) {
+        errorMessage = 'Account will be locked due to too many failed attempts.';
       }
-
-      if (user && isPasswordValid) {
-        if (user.status === 'suspended') {
-          setIsLoading(false);
-          setSuspensionInfo({
-            isSuspended: true,
-            userName: user.name,
-            reason: user.suspensionReason || 'Your account has been suspended.'
-          });
-          return;
-        }
-
-        handleSuccessfulLogin(email);
-
-        const userData: UserData = {
-          id: user.id,
-          name: user.name,
-          fullName: user.name,
-          email: user.email,
-          specialty: user.specialty,
-          studyMode: user.studyMode,
-          registrationDate: user.registrationDate,
-          paymentStatus: user.paymentStatus || 'pending',
-          phone: user.phone,
-          cnic: user.cnic,
-          passwordHash: user.password,
-          passwordSalt: user.passwordSalt,
-          emailVerified: user.emailVerified || false,
-          emailVerificationToken: user.emailVerificationToken,
-          emailVerificationSentAt: user.emailVerificationSentAt,
-          emailVerificationExpiresAt: user.emailVerificationExpiresAt,
-          emailVerificationAttempts: user.emailVerificationAttempts || 0,
-          emailVerificationLastAttemptAt: user.emailVerificationLastAttemptAt,
-          emailVerificationStatus: user.emailVerificationStatus || 'pending',
-          emailVerificationEmailId: user.emailVerificationEmailId,
-          emailVerificationDeliveryStatus: user.emailVerificationDeliveryStatus,
-          emailVerificationError: user.emailVerificationError
-        };
-
-        setTimeout(() => {
-          setIsLoading(false);
-          onLogin?.(userData);
-        }, 500);
-      } else {
-        setIsLoading(false);
-        handleFailedLogin(email);
-        const attemptsRemaining = Math.max(0, 5 - (loginAttempts + 1));
-        let errorMessage = 'Invalid email or password.';
-        if (attemptsRemaining <= 2 && attemptsRemaining > 0) {
-          errorMessage += ` ${attemptsRemaining} attempts remaining before account lockout.`;
-        } else if (attemptsRemaining === 0) {
-          errorMessage = 'Account will be locked due to too many failed attempts.';
-        }
-        setErrors({ auth: errorMessage });
-      }
+      setErrors({ auth: errorMessage });
     } catch (error) {
       console.error('❌ Login error:', error);
       setIsLoading(false);

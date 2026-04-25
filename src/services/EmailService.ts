@@ -86,7 +86,7 @@ export class EmailService {
       to,
       subject,
       EmailDeliveryStatus.FAILED,
-      'Client SMTP disabled; use /api/auth/request-signup-otp (Resend) for verification',
+      'Client SMTP disabled; use /api/auth?action=request-signup-otp (Resend) for verification',
       'deprecated'
     );
     return {
@@ -477,7 +477,7 @@ export class EmailService {
   }
 
   /**
-   * Send signup OTP (Resend via Vercel `/api/auth/request-signup-otp`)
+   * Send signup OTP (Resend via Vercel `/api/auth?action=request-signup-otp`)
    */
   static async sendVerificationEmail(email: string, name: string): Promise<EmailResult> {
     return EmailService.requestSignupOtpApi(email, name, false);
@@ -496,7 +496,7 @@ export class EmailService {
     resend: boolean
   ): Promise<EmailResult> {
     try {
-      const r = await fetch(apiPath('/api/auth/request-signup-otp'), {
+      const r = await fetch(apiPath('/api/auth?action=request-signup-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -542,7 +542,7 @@ export class EmailService {
     code: string
   ): Promise<{ success: boolean; message: string; verificationToken?: string }> {
     try {
-      const r = await fetch(apiPath('/api/auth/verify-signup-otp'), {
+      const r = await fetch(apiPath('/api/auth?action=verify-signup-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -580,7 +580,7 @@ export class EmailService {
     waitTimeMinutes?: number;
     attemptsRemaining?: number;
   } {
-    // Cooldowns and max resends are enforced by `/api/auth/request-signup-otp` (server).
+    // Cooldowns and max resends are enforced by `/api/auth?action=request-signup-otp` (server).
     return { allowed: true, attemptsRemaining: this.MAX_RESEND_ATTEMPTS };
   }
 

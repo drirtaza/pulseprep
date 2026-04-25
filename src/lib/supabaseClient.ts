@@ -6,7 +6,7 @@ const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 let browser: SupabaseClient | null = null;
 
 /**
- * Browser Supabase client (anon key). Used to persist user sessions from /api/auth/login
+ * Browser Supabase client (anon key). Used to persist user sessions from /api/auth?action=login
  * and to update password after recovery links.
  */
 export function getSupabaseBrowser(): SupabaseClient | null {
