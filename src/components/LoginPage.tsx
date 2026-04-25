@@ -25,6 +25,7 @@ import {
 import { LoginPageProps, UserData, SpecialtyType } from '../types';
 import { passwordService } from '../services/PasswordService';
 import { securityService } from '../services/SecurityService';
+import { getSupabaseBrowser } from '../lib/supabaseClient';
 
 const specialtyInfo = {
   medicine: {
@@ -256,83 +257,142 @@ export default function LoginPage({ onNavigate, onLogin, selectedSpecialty }: Lo
     setSuspensionInfo({ isSuspended: false, userName: '' });
 
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const supa = getSupabaseBrowser();
+      if (supa) {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim(), password })
+        });
+        const j = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          session?: { access_token: string; refresh_token: string; expires_in?: number };
+          user?: Record<string, unknown>;
+        };
 
-      // Check all_users (from signups)
-      let user = null;
+        if (!res.ok || !j.ok || !j.session || !j.user) {
+          setIsLoading(false);
+          handleFailedLogin(email);
+          const attemptsRemaining = Math.max(0, 5 - (loginAttempts + 1));
+          let errorMessage = j.error || 'Invalid email or password.';
+          if (attemptsRemaining <= 2 && attemptsRemaining > 0) {
+            errorMessage += ` ${attemptsRemaining} attempts remaining before account lockout.`;
+          } else if (attemptsRemaining === 0) {
+            errorMessage = 'Account will be locked due to too many failed attempts.';
+          }
+          setErrors({ auth: errorMessage });
+          return;
+        }
+
+        const u = j.user;
+        if (u.status === 'suspended') {
+          setIsLoading(false);
+          setSuspensionInfo({
+            isSuspended: true,
+            userName: String(u.name || u.fullName || 'User'),
+            reason: (u as { suspensionReason?: string }).suspensionReason || 'Your account has been suspended.'
+          });
+          return;
+        }
+
+        const { error: sessionErr } = await supa.auth.setSession({
+          access_token: j.session.access_token,
+          refresh_token: j.session.refresh_token
+        });
+        if (sessionErr) {
+          console.error('setSession', sessionErr);
+        }
+
+        const spec = u.specialty as string;
+        const specialty: SpecialtyType =
+          spec === 'surgery' || spec === 'gynae-obs' ? spec : 'medicine';
+        const userData: UserData = {
+          id: String(u.id),
+          name: String(u.name || u.fullName || ''),
+          fullName: String(u.fullName || u.name || ''),
+          email: String(u.email),
+          specialty,
+          studyMode: (u.studyMode as UserData['studyMode']) || 'regular',
+          registrationDate: String(u.registrationDate || new Date().toISOString()),
+          paymentStatus: (u.paymentStatus as UserData['paymentStatus']) || 'pending',
+          phone: u.phone as string | undefined,
+          cnic: u.cnic as string | undefined,
+          status: u.status as UserData['status'],
+          paymentDetails: u.paymentDetails as UserData['paymentDetails'],
+          passwordHash: u.passwordHash as string | undefined,
+          passwordSalt: u.passwordSalt as string | undefined,
+          emailVerified: Boolean(u.emailVerified),
+          emailVerificationToken: u.emailVerificationToken as string | undefined,
+          emailVerificationSentAt: u.emailVerificationSentAt as string | undefined,
+          emailVerificationExpiresAt: u.emailVerificationExpiresAt as string | undefined,
+          emailVerificationAttempts: Number(u.emailVerificationAttempts) || 0,
+          emailVerificationLastAttemptAt: u.emailVerificationLastAttemptAt as string | undefined,
+          emailVerificationStatus:
+            (u.emailVerificationStatus as UserData['emailVerificationStatus']) || 'pending',
+          emailVerificationEmailId: u.emailVerificationEmailId as string | undefined,
+          emailVerificationDeliveryStatus: u.emailVerificationDeliveryStatus as UserData['emailVerificationDeliveryStatus'],
+          emailVerificationError: u.emailVerificationError as string | undefined
+        };
+
+        handleSuccessfulLogin(email);
+        setTimeout(() => {
+          setIsLoading(false);
+          onLogin?.(userData);
+        }, 300);
+        return;
+      }
+
+      // Legacy: local all_users (no Supabase env)
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      let user: any = null;
       let isPasswordValid = false;
 
       const allUsers = JSON.parse(localStorage.getItem('all_users') || '[]');
       const foundUser = allUsers.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
-      
+
       if (foundUser) {
-        // Check if user has hashed password (new system) or plain text (legacy)
         if (foundUser.passwordSalt && foundUser.password) {
-          // New hashed password system
           isPasswordValid = await passwordService.verifyPassword(password, foundUser.password, foundUser.passwordSalt);
         } else if (foundUser.password) {
-          // Legacy plain text password (for backward compatibility)
           isPasswordValid = password === foundUser.password;
-          
-          // Upgrade to hashed password
           if (isPasswordValid) {
             try {
               const { hash, salt } = await passwordService.hashPassword(password);
               foundUser.password = hash;
               foundUser.passwordSalt = salt;
-              
-              // Update user in storage
-              const userIndex = allUsers.findIndex((u: any) => u.email.toLowerCase() === email.toLowerCase());
+              const userIndex = allUsers.findIndex((x: any) => x.email.toLowerCase() === email.toLowerCase());
               if (userIndex !== -1) {
                 allUsers[userIndex] = foundUser;
                 localStorage.setItem('all_users', JSON.stringify(allUsers));
-                console.log('✅ Password upgraded to hashed format for user:', email);
               }
             } catch (error) {
-              console.error('❌ Failed to upgrade password to hashed format:', error);
+              console.error('Failed to upgrade password hash', error);
             }
           }
         } else {
-          // No password set - handle gracefully by requiring password reset
-          console.warn('⚠️ User found but no password set:', email);
-          console.log('🔧 User needs password setup:', {
-            email: foundUser.email,
-            name: foundUser.name,
-            hasPassword: !!foundUser.password,
-            hasPasswordSalt: !!foundUser.passwordSalt,
-            registrationDate: foundUser.registrationDate
-          });
-          
-          // Set a temporary flag to redirect to password reset
           setIsLoading(false);
-          setErrors({ 
-            auth: `Account setup incomplete. Please use "Forgot password" to set up your password, or contact support if you need assistance.` 
+          setErrors({
+            auth: `Account setup incomplete. Please use "Forgot password" or contact support.`
           });
           return;
         }
-
-        if (isPasswordValid) {
-          user = foundUser;
-        }
+        if (isPasswordValid) user = foundUser;
       }
 
-      // Also check pending users if not found in main users
       if (!user) {
         const pendingUser = localStorage.getItem('pulseprep_user_pending');
         if (pendingUser) {
           const pendingData = JSON.parse(pendingUser);
           if (pendingData.email.toLowerCase() === email.toLowerCase()) {
-            // For pending users, we'll allow any password for now (legacy behavior)
-            // In production, you'd want proper password verification here too
             user = pendingData;
             isPasswordValid = true;
           }
         }
       }
-      
+
       if (user && isPasswordValid) {
-        // Check if user account is suspended
         if (user.status === 'suspended') {
           setIsLoading(false);
           setSuspensionInfo({
@@ -343,11 +403,8 @@ export default function LoginPage({ onNavigate, onLogin, selectedSpecialty }: Lo
           return;
         }
 
-
-
         handleSuccessfulLogin(email);
 
-        // Create UserData object matching the interface
         const userData: UserData = {
           id: user.id,
           name: user.name,
@@ -359,9 +416,8 @@ export default function LoginPage({ onNavigate, onLogin, selectedSpecialty }: Lo
           paymentStatus: user.paymentStatus || 'pending',
           phone: user.phone,
           cnic: user.cnic,
-          passwordHash: user.password, // Store hash for future use
-          passwordSalt: user.passwordSalt, // Store salt for future use
-          // Email verification fields
+          passwordHash: user.password,
+          passwordSalt: user.passwordSalt,
           emailVerified: user.emailVerified || false,
           emailVerificationToken: user.emailVerificationToken,
           emailVerificationSentAt: user.emailVerificationSentAt,
@@ -373,10 +429,7 @@ export default function LoginPage({ onNavigate, onLogin, selectedSpecialty }: Lo
           emailVerificationDeliveryStatus: user.emailVerificationDeliveryStatus,
           emailVerificationError: user.emailVerificationError
         };
-        
-        console.log('🔐 Login successful for user:', userData.email);
-        
-        // Show success message briefly before calling onLogin
+
         setTimeout(() => {
           setIsLoading(false);
           onLogin?.(userData);
@@ -384,16 +437,13 @@ export default function LoginPage({ onNavigate, onLogin, selectedSpecialty }: Lo
       } else {
         setIsLoading(false);
         handleFailedLogin(email);
-        
         const attemptsRemaining = Math.max(0, 5 - (loginAttempts + 1));
         let errorMessage = 'Invalid email or password.';
-        
         if (attemptsRemaining <= 2 && attemptsRemaining > 0) {
           errorMessage += ` ${attemptsRemaining} attempts remaining before account lockout.`;
         } else if (attemptsRemaining === 0) {
           errorMessage = 'Account will be locked due to too many failed attempts.';
         }
-        
         setErrors({ auth: errorMessage });
       }
     } catch (error) {

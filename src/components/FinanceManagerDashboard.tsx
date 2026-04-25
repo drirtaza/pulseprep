@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   DollarSign, 
   Clock, 
@@ -119,12 +119,25 @@ const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardPro
     user: null,
     finalStatus: 'pending'
   });
+  const pendingSnapshotRef = useRef<string>('');
 
   // Load data on component mount and set up auto-refresh
   useEffect(() => {
-    refreshData();
-    const interval = setInterval(refreshData, 30000); // Auto-refresh every 30 seconds
-    return () => clearInterval(interval);
+    refreshData({ silent: false });
+    const interval = setInterval(() => refreshData({ silent: true }), 8000); // smart background refresh
+    const refreshOnFocus = () => refreshData({ silent: true });
+    const refreshOnVisible = () => {
+      if (document.visibilityState === 'visible') refreshData({ silent: true });
+    };
+
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshOnVisible);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshOnVisible);
+    };
   }, []);
 
   // Load payment settings
@@ -134,22 +147,44 @@ const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardPro
 
   }, []);
 
-  const refreshData = async () => {
-    setIsLoading(true);
+  const refreshData = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setIsLoading(true);
     try {
-      const pendingResp = await fetch('/api/admin-users-list?paymentStatus=pending');
+      const pendingResp = await fetch('/api/admin-users-list?paymentStatus=pending', { cache: 'no-store' });
       if (pendingResp.ok) {
         const pendingJson = await pendingResp.json();
         const items = Array.isArray(pendingJson?.items) ? pendingJson.items : [];
         const pending = items
           .filter((row: any) => (row?.payment_status || 'pending') === 'pending')
           .map(mapApiUserToUserData);
-        setPendingPayments(pending);
+        const snapshot = JSON.stringify(
+          pending.map((u: UserData) => ({
+            email: u.email,
+            status: u.status,
+            paymentStatus: u.paymentStatus,
+            registrationDate: u.registrationDate
+          }))
+        );
+        if (snapshot !== pendingSnapshotRef.current) {
+          pendingSnapshotRef.current = snapshot;
+          setPendingPayments(pending);
+        }
       } else {
         // Fallback to legacy local path if API is temporarily unavailable
         const pending = getPendingPayments();
         const validatedPending = Array.isArray(pending) ? pending : [];
-        setPendingPayments(validatedPending);
+        const snapshot = JSON.stringify(
+          validatedPending.map((u: any) => ({
+            email: u?.email || '',
+            status: u?.status || '',
+            paymentStatus: u?.paymentStatus || '',
+            registrationDate: u?.registrationDate || ''
+          }))
+        );
+        if (snapshot !== pendingSnapshotRef.current) {
+          pendingSnapshotRef.current = snapshot;
+          setPendingPayments(validatedPending);
+        }
       }
       
       // ✅ FIXED: Use safe array validation for payment history
@@ -167,10 +202,13 @@ const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardPro
     } catch (error) {
       console.error('❌ Error refreshing finance data:', error);
       // Set empty arrays as fallback
-      setPendingPayments([]);
+      if (pendingSnapshotRef.current !== '[]') {
+        pendingSnapshotRef.current = '[]';
+        setPendingPayments([]);
+      }
       setPaymentHistory([]);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
@@ -630,7 +668,7 @@ const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardPro
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center space-x-4">
             <Button 
-              onClick={refreshData} 
+              onClick={() => refreshData({ silent: false })}
               disabled={isLoading}
               className="bg-yellow-600 hover:bg-yellow-700 text-white"
             >

@@ -35,6 +35,15 @@ function getFromEmail() {
   return process.env.FROM_EMAIL || getFromAddress();
 }
 
+/** Public site URL for email links (recovery redirect, etc.) */
+export function getSiteUrl(): string {
+  const s = (process.env.SITE_URL || process.env.VERCEL_URL || '').trim();
+  if (s) {
+    return s.startsWith('http') ? s : `https://${s}`;
+  }
+  return 'http://localhost:3000';
+}
+
 // --- supabase (service role) ---
 let supa: SupabaseClient | null = null;
 export function getSupabaseAdmin(): SupabaseClient {
@@ -44,6 +53,24 @@ export function getSupabaseAdmin(): SupabaseClient {
     });
   }
   return supa;
+}
+
+function getSupabaseAnonKey() {
+  return requireEnv('SUPABASE_ANON_KEY');
+}
+
+/**
+ * Anon key client (for server-side signInWithPassword only).
+ * Do not use the service role key for user password sign-in.
+ */
+let supaAnon: SupabaseClient | null = null;
+export function getSupabaseAnonUserClient(): SupabaseClient {
+  if (!supaAnon) {
+    supaAnon = createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+      auth: { autoRefreshToken: false, persistSession: false }
+    });
+  }
+  return supaAnon;
 }
 
 // --- OTP ---

@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { PageType, SpecialtyType } from '../types';
 import { passwordService, PasswordStrengthResult } from '../services/PasswordService';
-import { EmailService } from '../services/EmailService';
+import { getSupabaseBrowser, SUPABASE_RECOVERY_FLAG } from '../lib/supabaseClient';
 
 interface ForgotPasswordPageProps {
   onNavigate: (page: PageType) => void;
@@ -72,12 +72,11 @@ const getThemeClasses = (specialty: SpecialtyType | null) => {
   };
 };
 
-type Step = 'email' | 'token' | 'reset';
+type Step = 'email' | 'reset';
 
 export default function ForgotPasswordPage({ onNavigate, selectedSpecialty }: ForgotPasswordPageProps) {
   const [currentStep, setCurrentStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
-  const [resetToken, setResetToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -102,7 +101,6 @@ export default function ForgotPasswordPage({ onNavigate, selectedSpecialty }: Fo
   
   const [errors, setErrors] = useState<{
     email?: string;
-    token?: string;
     password?: string;
     confirmPassword?: string;
     general?: string;
@@ -142,9 +140,12 @@ export default function ForgotPasswordPage({ onNavigate, selectedSpecialty }: Fo
     }
   }, [resendCooldown]);
 
-  // Clean up expired tokens on component mount
+  // Email link: App.tsx applies hash ?access_token=... then sets SUPABASE_RECOVERY_FLAG and navigates here
   useEffect(() => {
-    passwordService.cleanupExpiredTokens();
+    if (sessionStorage.getItem(SUPABASE_RECOVERY_FLAG) === '1') {
+      setCurrentStep('reset');
+      setSuccessMessage('Set a new password for your account. You are signed in from the reset link.');
+    }
   }, []);
 
   const validateEmail = (email: string): boolean => {
@@ -170,69 +171,24 @@ export default function ForgotPasswordPage({ onNavigate, selectedSpecialty }: Fo
     setIsLoading(true);
 
     try {
-      // Check if user exists
-      const allUsers = JSON.parse(localStorage.getItem('all_users') || '[]');
-      const user = allUsers.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
-
-      if (!user) {
-        // Don't reveal whether email exists or not for security
-        setSuccessMessage('If an account with that email exists, you will receive a password reset link shortly.');
-        setIsLoading(false);
+      const res = await fetch('/api/auth/password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrors({ general: (data as { error?: string })?.error || 'Failed to send reset email.' });
         return;
       }
-
-      // Generate reset token
-      const resetTokenData = await passwordService.generateResetToken(email);
-      
-      // Send email (in production, this would be server-side)
-      const emailResult = await EmailService.sendPasswordResetEmail(
-        email,
-        user.name || user.fullName || 'User',
-        resetTokenData.token
+      setSuccessMessage(
+        (data as { message?: string })?.message ||
+          'If an account exists for that email, you will receive a reset link shortly.'
       );
-
-      if (emailResult.success) {
-        setSuccessMessage('Password reset link sent to your email. Please check your inbox and follow the instructions.');
-        setCurrentStep('token');
-        setResendCooldown(60); // 60 second cooldown
-      } else {
-        setErrors({ general: 'Failed to send reset email. Please try again.' });
-      }
+      setResendCooldown(60);
     } catch (error) {
-      console.error('❌ Password reset email error:', error);
+      console.error('Password reset email error:', error);
       setErrors({ general: 'An error occurred. Please try again.' });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleVerifyToken = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrors({});
-
-    if (!resetToken) {
-      setErrors({ token: 'Reset token is required' });
-      return;
-    }
-
-    setIsLoading(true);
-
-    try {
-      // Verify token
-      const tokenData = passwordService.verifyResetToken(resetToken);
-
-      if (!tokenData) {
-        setErrors({ token: 'Invalid or expired reset token. Please request a new one.' });
-        setIsLoading(false);
-        return;
-      }
-
-      // Token is valid, proceed to password reset
-      setCurrentStep('reset');
-      setSuccessMessage('Token verified successfully. Please enter your new password.');
-    } catch (error) {
-      console.error('❌ Token verification error:', error);
-      setErrors({ general: 'An error occurred during verification. Please try again.' });
     } finally {
       setIsLoading(false);
     }
@@ -265,57 +221,26 @@ export default function ForgotPasswordPage({ onNavigate, selectedSpecialty }: Fo
     setIsLoading(true);
 
     try {
-      // Verify token one more time
-      const tokenData = passwordService.verifyResetToken(resetToken);
-
-      if (!tokenData) {
-        setErrors({ general: 'Reset token has expired. Please start over.' });
-        setIsLoading(false);
+      const supa = getSupabaseBrowser();
+      if (!supa) {
+        setErrors({
+          general: 'Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).'
+        });
         return;
       }
 
-      // Hash the new password
-      const { hash: passwordHash, salt: passwordSalt } = await passwordService.hashPassword(newPassword);
-
-      // Update user's password
-      const allUsers = JSON.parse(localStorage.getItem('all_users') || '[]');
-      const userIndex = allUsers.findIndex((u: any) => u.email.toLowerCase() === tokenData.email.toLowerCase());
-
-      if (userIndex === -1) {
-        setErrors({ general: 'User not found. Please contact support.' });
-        setIsLoading(false);
+      const { error: updateErr } = await supa.auth.updateUser({ password: newPassword });
+      if (updateErr) {
+        setErrors({ general: updateErr.message || 'Could not update password. Request a new reset link.' });
         return;
       }
 
-      // Update password
-      allUsers[userIndex].password = passwordHash;
-      allUsers[userIndex].passwordSalt = passwordSalt;
-      allUsers[userIndex].passwordResetAt = new Date().toISOString();
-
-      // Save updated users
-      localStorage.setItem('all_users', JSON.stringify(allUsers));
-
-      // Mark token as used
-      passwordService.useResetToken(resetToken);
-
-      // Add to password history
-      await passwordService.addToPasswordHistory(allUsers[userIndex].id, passwordHash);
-
-      // Send confirmation email
-      await EmailService.sendPasswordResetConfirmationEmail(
-        tokenData.email,
-        allUsers[userIndex].name || allUsers[userIndex].fullName || 'User'
-      );
-
-      setSuccessMessage('Your password has been reset successfully! You can now sign in with your new password.');
-      
-      // Redirect to login after 3 seconds
-      setTimeout(() => {
-        onNavigate('login');
-      }, 3000);
-
+      await supa.auth.signOut();
+      sessionStorage.removeItem(SUPABASE_RECOVERY_FLAG);
+      setSuccessMessage('Your password was updated. You can now sign in.');
+      setTimeout(() => onNavigate('login'), 2000);
     } catch (error) {
-      console.error('❌ Password reset error:', error);
+      console.error('Password reset error:', error);
       setErrors({ general: 'An error occurred while resetting your password. Please try again.' });
     } finally {
       setIsLoading(false);
@@ -407,106 +332,6 @@ export default function ForgotPasswordPage({ onNavigate, selectedSpecialty }: Fo
             disabled={isLoading}
           >
             Sign in instead
-          </button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-
-  const renderTokenStep = () => (
-    <Card className="border-0 bg-white/10 backdrop-blur-md shadow-2xl">
-      <CardHeader className="text-center">
-        <CardTitle className="text-2xl text-white mb-2">Enter Reset Code</CardTitle>
-        <CardDescription className="text-white/80">
-          We've sent a reset code to your email. Enter it below to continue.
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent className="space-y-6">
-        {successMessage && (
-          <Alert className="border-green-400 bg-green-500/20 backdrop-blur-sm">
-            <CheckCircle className="h-5 w-5 text-green-300" />
-            <AlertDescription className="text-green-100">
-              {successMessage}
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {errors.general && (
-          <Alert className="border-red-300 bg-red-50/10 backdrop-blur-sm">
-            <AlertCircle className="h-4 w-4 text-red-400" />
-            <AlertDescription className="text-red-200">
-              {errors.general}
-            </AlertDescription>
-          </Alert>
-        )}
-
-        <form onSubmit={handleVerifyToken} className="space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="token" className="text-white/90">
-              Reset Code
-            </Label>
-            <div className="relative">
-              <Key className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/60" />
-              <Input
-                id="token"
-                type="text"
-                value={resetToken}
-                onChange={(e) => setResetToken(e.target.value)}
-                className={`pl-10 bg-white/10 border-white/30 text-white placeholder:text-white/60 ${theme.focus} ${errors.token ? 'border-red-400' : ''}`}
-                placeholder="Enter the reset code from your email"
-                disabled={isLoading}
-              />
-            </div>
-            {errors.token && (
-              <p className="text-red-300 text-sm">{errors.token}</p>
-            )}
-          </div>
-
-          <Button
-            type="submit"
-            className="w-full bg-white/20 hover:bg-white/30 text-white border-white/30 border backdrop-blur-sm transition-all duration-200"
-            size="lg"
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                Verifying Code...
-              </>
-            ) : (
-              <>
-                <Shield className="w-5 h-5 mr-2" />
-                Verify Code
-              </>
-            )}
-          </Button>
-        </form>
-
-        <div className="text-center pt-4 border-t border-white/20 space-y-2">
-          <div>
-            <span className="text-white/80 text-sm">Didn't receive the code? </span>
-            {resendCooldown > 0 ? (
-              <span className="text-white/60 text-sm">
-                Resend in {resendCooldown}s
-              </span>
-            ) : (
-              <button
-                onClick={handleResendEmail}
-                className="text-white hover:text-white/80 underline text-sm transition-colors"
-                disabled={isLoading}
-              >
-                Resend code
-              </button>
-            )}
-          </div>
-          <button
-            onClick={() => setCurrentStep('email')}
-            className="flex items-center justify-center w-full text-white/80 hover:text-white text-sm transition-colors"
-            disabled={isLoading}
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to email entry
           </button>
         </div>
       </CardContent>
@@ -717,33 +542,30 @@ export default function ForgotPasswordPage({ onNavigate, selectedSpecialty }: Fo
             {/* Step Indicator */}
             <div className="flex items-center justify-center mb-8">
               <div className="flex items-center space-x-4">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
-                  currentStep === 'email' ? 'bg-white text-gray-900' : 'bg-white/20 text-white'
-                }`}>
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
+                    currentStep === 'email' ? 'bg-white text-gray-900' : 'bg-white/20 text-white'
+                  }`}
+                >
                   1
                 </div>
-                <div className={`w-8 h-1 rounded transition-colors ${
-                  ['token', 'reset'].includes(currentStep) ? 'bg-white' : 'bg-white/20'
-                }`} />
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
-                  currentStep === 'token' ? 'bg-white text-gray-900' : 'bg-white/20 text-white'
-                }`}>
+                <div
+                  className={`w-8 h-1 rounded transition-colors ${
+                    currentStep === 'reset' ? 'bg-white' : 'bg-white/20'
+                  }`}
+                />
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
+                    currentStep === 'reset' ? 'bg-white text-gray-900' : 'bg-white/20 text-white'
+                  }`}
+                >
                   2
-                </div>
-                <div className={`w-8 h-1 rounded transition-colors ${
-                  currentStep === 'reset' ? 'bg-white' : 'bg-white/20'
-                }`} />
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
-                  currentStep === 'reset' ? 'bg-white text-gray-900' : 'bg-white/20 text-white'
-                }`}>
-                  3
                 </div>
               </div>
             </div>
 
             {/* Render current step */}
             {currentStep === 'email' && renderEmailStep()}
-            {currentStep === 'token' && renderTokenStep()}
             {currentStep === 'reset' && renderResetStep()}
 
             {/* Back to Home */}

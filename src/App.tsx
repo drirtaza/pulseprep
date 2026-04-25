@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { PulsePrepNavigation } from "./components/PulsePrepNavigation";
 import { SpecialtySelection } from "./components/SpecialtySelection";
 import { Footer } from "./components/Footer";
@@ -1557,6 +1557,32 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const navigateToPageRef = useRef(navigateToPage);
+  navigateToPageRef.current = navigateToPage;
+
+  // Supabase password recovery: #access_token=...&refresh_token=...&type=recovery
+  useEffect(() => {
+    (async () => {
+      const { getSupabaseBrowser, SUPABASE_RECOVERY_FLAG } = await import('./lib/supabaseClient');
+      const client = getSupabaseBrowser();
+      if (!client) return;
+      const h = window.location.hash;
+      if (!h || !h.includes('access_token')) return;
+      const q = new URLSearchParams(h.replace(/^#/, ''));
+      const at = q.get('access_token');
+      const rt = q.get('refresh_token');
+      if (!at || !rt) return;
+      const { error } = await client.auth.setSession({ access_token: at, refresh_token: rt });
+      if (error) {
+        console.error('Supabase recovery setSession', error);
+        return;
+      }
+      sessionStorage.setItem(SUPABASE_RECOVERY_FLAG, '1');
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      navigateToPageRef.current('forgot-password');
+    })();
+  }, []);
+
   const handleSpecialtySelection = (specialty: SpecialtyType) => {
     console.log(`🎯 User selected specialty: ${specialty}`);
     setSelectedSpecialty(specialty);
@@ -1829,6 +1855,26 @@ export default function App() {
       if (!dbSyncResponse.ok) {
         const errText = await dbSyncResponse.text().catch(() => '');
         throw new Error(errText || 'Failed to sync signup data to Supabase');
+      }
+
+      if (typeof finalData.password === 'string' && finalData.password.length >= 8) {
+        try {
+          const regRes = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: userWithSpecialty.email,
+              password: finalData.password,
+              fullName: userWithSpecialty.fullName
+            })
+          });
+          if (!regRes.ok) {
+            const t = await regRes.text().catch(() => '');
+            console.warn('Supabase auth register (non-fatal):', t);
+          }
+        } catch (regErr) {
+          console.warn('Supabase auth register (non-fatal):', regErr);
+        }
       }
       
       setUserData(userWithSpecialty);

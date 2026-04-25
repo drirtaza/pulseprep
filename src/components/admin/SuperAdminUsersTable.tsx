@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Download, MoreHorizontal, CheckCircle, XCircle, AlertTriangle, Users, CreditCard, TrendingUp, Clock, Eye, FileText, Edit } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -41,10 +41,25 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
   const [bulkAction, setBulkAction] = useState<'approve' | 'reject' | 'suspend' | 'activate' | ''>('');
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
+  const usersSnapshotRef = useRef<string>("");
 
   // Load users
   useEffect(() => {
-    loadUsers();
+    loadUsers({ silent: false });
+    const interval = setInterval(() => loadUsers({ silent: true }), 8000);
+    const refreshOnFocus = () => loadUsers({ silent: true });
+    const refreshOnVisible = () => {
+      if (document.visibilityState === 'visible') loadUsers({ silent: true });
+    };
+
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshOnVisible);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshOnVisible);
+    };
   }, []);
 
   const mapApiUserToUserData = (row: any): UserData => {
@@ -80,30 +95,74 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
     };
   };
 
-  const loadUsers = async () => {
+  const loadUsers = async ({ silent = false }: { silent?: boolean } = {}) => {
     try {
-      setIsLoading(true);
-      const response = await fetch('/api/admin-users-list');
+      if (!silent) setIsLoading(true);
+      const response = await fetch('/api/admin-users-list', { cache: 'no-store' });
       if (!response.ok) {
         throw new Error(`admin-users-list failed: ${response.status}`);
       }
       const result = await response.json();
       const items = Array.isArray(result?.items) ? result.items : [];
       const mappedUsers = items.map(mapApiUserToUserData);
-      setUsers(mappedUsers);
-      localStorage.setItem('all_users', JSON.stringify(mappedUsers));
-      console.log(`📊 Loaded ${mappedUsers.length} users from Supabase`);
+      const snapshot = JSON.stringify(
+        mappedUsers.map((u: UserData) => ({
+          email: u.email,
+          status: u.status,
+          paymentStatus: u.paymentStatus,
+          registrationDate: u.registrationDate,
+          updatedAt: (u as any)?.updatedAt || null
+        }))
+      );
+
+      if (snapshot !== usersSnapshotRef.current) {
+        usersSnapshotRef.current = snapshot;
+        setUsers(mappedUsers);
+        try {
+          const rawPrev = localStorage.getItem('all_users');
+          const prev = rawPrev ? JSON.parse(rawPrev) : [];
+          const prevList = (Array.isArray(prev) ? prev : []) as UserData[];
+          const byEmail = new Map(
+            prevList.map((u) => [String(u?.email || '').toLowerCase(), u])
+          );
+          const merged = mappedUsers.map((m: UserData) => {
+            const o = byEmail.get(m.email.toLowerCase());
+            if (!o) return m;
+            return { ...o, ...m, studyMode: m.studyMode || o.studyMode || 'regular' };
+          });
+          localStorage.setItem('all_users', JSON.stringify(merged));
+        } catch {
+          localStorage.setItem('all_users', JSON.stringify(mappedUsers));
+        }
+        console.log(`📊 Loaded ${mappedUsers.length} users from Supabase`);
+      }
     } catch (error) {
       console.error('❌ Error loading users from Supabase, using cache:', error);
       try {
         const storedUsers = localStorage.getItem('all_users');
         const parsedUsers = storedUsers ? JSON.parse(storedUsers) : [];
-        setUsers(Array.isArray(parsedUsers) ? parsedUsers : []);
+        const fallbackUsers = Array.isArray(parsedUsers) ? parsedUsers : [];
+        const snapshot = JSON.stringify(
+          fallbackUsers.map((u: any) => ({
+            email: u?.email || '',
+            status: u?.status || '',
+            paymentStatus: u?.paymentStatus || '',
+            registrationDate: u?.registrationDate || '',
+            updatedAt: u?.updatedAt || null
+          }))
+        );
+        if (snapshot !== usersSnapshotRef.current) {
+          usersSnapshotRef.current = snapshot;
+          setUsers(fallbackUsers);
+        }
       } catch {
-        setUsers([]);
+        if (usersSnapshotRef.current !== "[]") {
+          usersSnapshotRef.current = "[]";
+          setUsers([]);
+        }
       }
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
@@ -525,7 +584,7 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
             <Download className="h-4 w-4 mr-2" />
             Export
           </Button>
-          <Button onClick={loadUsers}>
+          <Button onClick={() => loadUsers({ silent: false })}>
             <Users className="h-4 w-4 mr-2" />
             Refresh
           </Button>

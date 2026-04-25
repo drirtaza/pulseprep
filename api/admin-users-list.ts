@@ -8,6 +8,10 @@ function bad(res: VercelResponse, code: number, error: string) {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleCors(req, res)) return;
   if (req.method !== 'GET') return bad(res, 405, 'Method not allowed');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
 
   const supabase = getSupabaseAdmin();
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
