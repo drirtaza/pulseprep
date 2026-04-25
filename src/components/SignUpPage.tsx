@@ -260,6 +260,35 @@ export default function SignUpPage({ onNavigate, onStepComplete, selectedSpecial
         paymentVerified: false
       };
 
+      // Persist signup profile in Supabase (primary), fallback to admin-upsert route.
+      const payload = {
+        email: email.toLowerCase().trim(),
+        fullName: fullName.trim(),
+        name: fullName.trim(),
+        phone: phone.trim(),
+        cnic: cnic.trim(),
+        specialty: selectedSpecialty || 'medicine'
+      };
+      const upsertResp = await fetch('/api/pending-user-upsert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!upsertResp.ok) {
+        const fallbackResp = await fetch('/api/admin-update-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'auth-signup-start',
+            ...payload
+          })
+        });
+        if (!fallbackResp.ok) {
+          const msg = await fallbackResp.text().catch(() => '');
+          throw new Error(msg || 'Failed to save signup data to database');
+        }
+      }
+
       // Store in sessionStorage for multi-step signup
       sessionStorage.setItem('signup_step1', JSON.stringify(stepData));
 

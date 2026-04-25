@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle} fr
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Label } from "../ui/label";
 
-import { UserData, AdminData, PageType } from "../../types";
+import { UserData, AdminData, PageType, SpecialtyType } from "../../types";
 import { PaymentJourneyModal } from "../PaymentJourneyModal";
 import { PaymentRejectionModal } from "../PaymentRejectionModal";
 import { PaymentAttemptsHistoryModal } from "../PaymentAttemptsHistoryModal";
@@ -47,25 +47,59 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
     loadUsers();
   }, []);
 
-  const loadUsers = () => {
+  const mapApiUserToUserData = (row: any): UserData => {
+    const specialty: SpecialtyType =
+      row?.specialty === 'surgery' || row?.specialty === 'gynae-obs' ? row.specialty : 'medicine';
+    const paymentStatus =
+      row?.payment_status === 'completed' || row?.payment_status === 'rejected'
+        ? row.payment_status
+        : 'pending';
+
+    return {
+      id: row?.id || row?.email || crypto.randomUUID(),
+      name: row?.name || row?.full_name || '',
+      fullName: row?.full_name || row?.name || '',
+      email: row?.email || '',
+      specialty,
+      studyMode: 'regular',
+      registrationDate: row?.registration_date || row?.created_at || new Date().toISOString(),
+      phone: row?.phone || '',
+      cnic: row?.cnic || '',
+      paymentStatus,
+      paymentDetails: (row?.payment_details as any) || undefined,
+      subscriptionExpiryDate: row?.subscription_expiry_date || undefined,
+      paymentDate: row?.payment_date || undefined,
+      actualAmountPaid: row?.actual_amount_paid || undefined,
+      status: row?.status || 'pending',
+      paymentAttempts: [],
+      emailVerified: Boolean(row?.email_verified),
+      emailVerificationAttempts: 0,
+      emailVerificationStatus: row?.email_verified ? 'verified' : 'pending'
+    };
+  };
+
+  const loadUsers = async () => {
     try {
       setIsLoading(true);
-      const storedUsers = localStorage.getItem('all_users');
-      if (storedUsers) {
-        const parsedUsers = JSON.parse(storedUsers);
-        if (Array.isArray(parsedUsers)) {
-          setUsers(parsedUsers);
-          console.log(`📊 Loaded ${parsedUsers.length} users`);
-        } else {
-          console.warn('⚠️ Stored users is not an array');
-          setUsers([]);
-        }
-      } else {
+      const response = await fetch('/api/admin-users-list');
+      if (!response.ok) {
+        throw new Error(`admin-users-list failed: ${response.status}`);
+      }
+      const result = await response.json();
+      const items = Array.isArray(result?.items) ? result.items : [];
+      const mappedUsers = items.map(mapApiUserToUserData);
+      setUsers(mappedUsers);
+      localStorage.setItem('all_users', JSON.stringify(mappedUsers));
+      console.log(`📊 Loaded ${mappedUsers.length} users from Supabase`);
+    } catch (error) {
+      console.error('❌ Error loading users from Supabase, using cache:', error);
+      try {
+        const storedUsers = localStorage.getItem('all_users');
+        const parsedUsers = storedUsers ? JSON.parse(storedUsers) : [];
+        setUsers(Array.isArray(parsedUsers) ? parsedUsers : []);
+      } catch {
         setUsers([]);
       }
-    } catch (error) {
-      console.error('❌ Error loading users:', error);
-      setUsers([]);
     } finally {
       setIsLoading(false);
     }
@@ -301,8 +335,50 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
     }
   };
 
-  const updateUserStatus = (user: UserData, status: 'completed' | 'rejected' | 'suspended') => {
+  const updateUserStatus = async (user: UserData, status: 'completed' | 'rejected' | 'suspended') => {
     try {
+      const approvedAmount =
+        typeof user.paymentDetails?.amount === 'number' && user.paymentDetails.amount > 0
+          ? user.paymentDetails.amount
+          : 1000;
+      const requestBody =
+        status === 'completed'
+          ? {
+              email: user.email,
+              status: 'active',
+              paymentStatus: 'completed',
+              emailVerified: user.emailVerified,
+              paymentDetails: user.paymentDetails || {},
+              action: 'payment_approve',
+              approvedAmount,
+              approvedCurrency: user.paymentDetails?.currency || 'PKR'
+            }
+          : status === 'rejected'
+            ? {
+                email: user.email,
+                status: 'rejected',
+                paymentStatus: 'rejected',
+                emailVerified: user.emailVerified,
+                paymentDetails: user.paymentDetails || {}
+              }
+            : {
+                email: user.email,
+                status: 'suspended',
+                paymentStatus: user.paymentStatus === 'completed' ? 'completed' : 'pending',
+                emailVerified: user.emailVerified,
+                paymentDetails: user.paymentDetails || {}
+              };
+
+      const response = await fetch('/api/admin-update-user-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(text || `Failed to update status (${response.status})`);
+      }
+
       const updatedUsers = users.map(u => {
         if (u.id === user.id || u.email === user.email) {
           const updatedUser = { ...u };
@@ -333,6 +409,7 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
 
       setUsers(updatedUsers);
       localStorage.setItem('all_users', JSON.stringify(updatedUsers));
+      await loadUsers();
       
       console.log(`✅ Updated user ${user.email} status to ${status}`);
     } catch (error) {

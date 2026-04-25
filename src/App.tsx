@@ -1725,7 +1725,7 @@ export default function App() {
 
 
 
-  const handleSignUpComplete = (finalData: SignUpFormData) => {
+  const handleSignUpComplete = async (finalData: SignUpFormData) => {
     try {
       console.log('🔍 SIGNUP COMPLETION DEBUG:', {
         email: finalData.email,
@@ -1814,6 +1814,22 @@ export default function App() {
         emailVerified: userWithSpecialty.emailVerified,
         emailVerificationStatus: userWithSpecialty.emailVerificationStatus
       });
+
+      const dbSyncResponse = await fetch('/api/admin-update-user-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: userWithSpecialty.email,
+          status: 'pending',
+          paymentStatus: 'pending',
+          emailVerified: userWithSpecialty.emailVerified,
+          paymentDetails: userWithSpecialty.paymentDetails || {}
+        })
+      });
+      if (!dbSyncResponse.ok) {
+        const errText = await dbSyncResponse.text().catch(() => '');
+        throw new Error(errText || 'Failed to sync signup data to Supabase');
+      }
       
       setUserData(userWithSpecialty);
       setIsAuthenticated(false);

@@ -289,6 +289,16 @@ const EmailVerificationPage = ({ onNavigate, onStepComplete, formData }: EmailVe
       }
       sessionStorage.removeItem('pulseprep_signup_otp_sent');
 
+      try {
+        await fetch('/api/pending-user-mark-email-verified', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: userEmail, verified: true })
+        });
+      } catch (dbSyncError) {
+        console.error('Failed to mark email verified in database:', dbSyncError);
+      }
+
       // Log successful verification
       try {
         const { AuditService } = await import('../services/AuditService');
