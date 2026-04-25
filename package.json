@@ -1,0 +1,57 @@
+{
+  "name": "Replace App.tsx with PulsePrep Medical Education Platform (Copy)",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@radix-ui/react-alert-dialog": "*",
+    "@radix-ui/react-aspect-ratio": "*",
+    "@radix-ui/react-collapsible": "*",
+    "@radix-ui/react-context-menu": "*",
+    "@radix-ui/react-dialog": "*",
+    "@radix-ui/react-hover-card": "*",
+    "@radix-ui/react-label": "*",
+    "@radix-ui/react-menubar": "*",
+    "@radix-ui/react-navigation-menu": "*",
+    "@radix-ui/react-popover": "*",
+    "@radix-ui/react-scroll-area": "*",
+    "@radix-ui/react-slot": "*",
+    "@radix-ui/react-toggle": "*",
+    "@radix-ui/react-toggle-group": "*",
+    "@radix-ui/react-tooltip": "*",
+    "@tailwindcss/vite": "4.2.4",
+    "class-variance-authority": "*",
+    "cmdk": "*",
+    "embla-carousel-react": "*",
+    "input-otp": "*",
+    "lucide-react": "*",
+    "next-themes": "*",
+    "react": "^18.3.1",
+    "react-day-picker": "*",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "*",
+    "react-resizable-panels": "*",
+    "recharts": "*",
+    "sonner": "*",
+    "tailwindcss": "4.2.4",
+    "vaul": "*",
+    "xlsx": "*",
+    "resend": "^4.0.1",
+    "@supabase/supabase-js": "^2.49.1",
+    "jose": "^5.9.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@vercel/node": "^3.2.0",
+    "@vitejs/plugin-react": "4.3.4",
+    "vite": "6.3.5"
+  },
+  "overrides": {
+    "vite": "6.3.5",
+    "@vitejs/plugin-react": "4.3.4"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:vercel": "vercel dev",
+    "build": "vite build"
+  }
+}
