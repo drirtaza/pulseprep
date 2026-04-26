@@ -1869,7 +1869,7 @@ export default function App() {
         });
         if (!regRes.ok) {
           const t = await regRes.text().catch(() => '');
-          console.warn('Supabase auth register (non-fatal):', t || regRes.status);
+          throw new Error(t || 'Failed to create login credentials. Please try again.');
         }
       }
       
