@@ -824,7 +824,7 @@ export default function SurgeryDashboard({ user, onNavigate, onStartPracticeSess
                 <div className="ml-8">
                   <Button
                     onClick={onContinuePractice}
-                    className="bg-white text-blue-600 hover:bg-blue-50 font-semibold px-8 py-3 shadow-lg"
+                    className="bg-blue-100 text-blue-900 hover:bg-white border border-blue-200 font-bold px-8 py-3 shadow-lg"
                     size="lg"
                   >
                     <Play className="w-5 h-5 mr-2" />

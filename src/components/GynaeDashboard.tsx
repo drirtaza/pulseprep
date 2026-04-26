@@ -817,7 +817,7 @@ export default function GynaeDashboard({ user, onNavigate, onStartPracticeSessio
                 <div className="ml-8">
                   <Button
                     onClick={onContinuePractice}
-                    className="bg-white text-pink-600 hover:bg-pink-50 font-semibold px-8 py-3 shadow-lg"
+                    className="bg-pink-100 text-pink-900 hover:bg-white border border-pink-200 font-bold px-8 py-3 shadow-lg"
                     size="lg"
                   >
                     <Play className="w-5 h-5 mr-2" />

@@ -803,7 +803,7 @@ export default function MedicineDashboard({ user, onNavigate, onStartPracticeSes
                 <div className="ml-8">
                   <Button
                     onClick={onContinuePractice}
-                    className="bg-white text-emerald-600 hover:bg-emerald-50 font-semibold px-8 py-3 shadow-lg"
+                    className="bg-emerald-100 text-emerald-900 hover:bg-white border border-emerald-200 font-bold px-8 py-3 shadow-lg"
                     size="lg"
                   >
                     <Play className="w-5 h-5 mr-2" />
