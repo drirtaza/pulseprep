@@ -23,15 +23,15 @@ interface Props {
 }
 
 const getSpecialtyBadgeStyle = (specialty: string): React.CSSProperties => {
-  if (specialty === 'surgery') return { backgroundColor: '#1d4ed8', color: '#ffffff', borderColor: '#1e40af' };
-  if (specialty === 'gynae-obs') return { backgroundColor: '#be185d', color: '#ffffff', borderColor: '#9d174d' };
-  return { backgroundColor: '#15803d', color: '#ffffff', borderColor: '#166534' };
+  if (specialty === 'surgery') return { backgroundColor: '#3b82f6', color: '#ffffff', borderColor: '#2563eb' };
+  if (specialty === 'gynae-obs') return { backgroundColor: '#ec4899', color: '#ffffff', borderColor: '#db2777' };
+  return { backgroundColor: '#22c55e', color: '#ffffff', borderColor: '#16a34a' };
 };
 
 const getStatusBadgeStyle = (status: string): React.CSSProperties => {
-  if (status === 'completed') return { backgroundColor: '#15803d', color: '#ffffff', borderColor: '#166534' };
-  if (status === 'rejected') return { backgroundColor: '#b91c1c', color: '#ffffff', borderColor: '#991b1b' };
-  return { backgroundColor: '#c2410c', color: '#ffffff', borderColor: '#9a3412' };
+  if (status === 'completed') return { backgroundColor: '#22c55e', color: '#ffffff', borderColor: '#16a34a' };
+  if (status === 'rejected') return { backgroundColor: '#ef4444', color: '#ffffff', borderColor: '#dc2626' };
+  return { backgroundColor: '#f59e0b', color: '#ffffff', borderColor: '#d97706' };
 };
 
 export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
