@@ -551,12 +551,12 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
     const status = safeUserPaymentStatus(user);
     switch (status) {
       case 'completed':
-        return <Badge className="bg-green-50 text-green-700 border-green-200"><CheckCircle className="w-3 h-3 mr-1" />Completed</Badge>;
+        return <Badge className="bg-green-700 text-white border-green-800"><CheckCircle className="w-3 h-3 mr-1" />Completed</Badge>;
       case 'rejected':
-        return <Badge className="bg-red-50 text-red-700 border-red-200"><XCircle className="w-3 h-3 mr-1" />Rejected</Badge>;
+        return <Badge className="bg-red-700 text-white border-red-800"><XCircle className="w-3 h-3 mr-1" />Rejected</Badge>;
       case 'pending':
       default:
-        return <Badge className="bg-orange-50 text-orange-700 border-orange-200"><AlertTriangle className="w-3 h-3 mr-1" />Pending</Badge>;
+        return <Badge className="bg-orange-700 text-white border-orange-800"><AlertTriangle className="w-3 h-3 mr-1" />Pending</Badge>;
     }
   };
 
@@ -829,9 +829,9 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
                     </TableCell>
                     <TableCell>
                       <Badge className={`
-                        ${safeUserSpecialty(user) === 'medicine' ? 'bg-green-100 text-green-800' : ''}
-                        ${safeUserSpecialty(user) === 'surgery' ? 'bg-blue-100 text-blue-800' : ''}
-                        ${safeUserSpecialty(user) === 'gynae-obs' ? 'bg-pink-100 text-pink-800' : ''}
+                        ${safeUserSpecialty(user) === 'medicine' ? 'bg-green-700 text-white border-green-800' : ''}
+                        ${safeUserSpecialty(user) === 'surgery' ? 'bg-blue-700 text-white border-blue-800' : ''}
+                        ${safeUserSpecialty(user) === 'gynae-obs' ? 'bg-pink-700 text-white border-pink-800' : ''}
                       `}>
                         {safeUserSpecialty(user)}
                       </Badge>

@@ -884,9 +884,9 @@ const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardPro
                           </td>
                           <td className="py-3 px-4">
                             <Badge className={`${
-                              daysWaiting > 2 ? 'bg-red-100 text-red-800 border-red-300' :
-                              daysWaiting > 1 ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
-                              'bg-green-100 text-green-800 border-green-300'
+                              daysWaiting > 2 ? 'bg-red-200 text-red-900 border-red-400' :
+                              daysWaiting > 1 ? 'bg-yellow-200 text-yellow-900 border-yellow-400' :
+                              'bg-green-200 text-green-900 border-green-400'
                             }`}>
                               {daysWaiting} days
                             </Badge>
