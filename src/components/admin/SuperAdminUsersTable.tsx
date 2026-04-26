@@ -22,6 +22,18 @@ interface Props {
   onRefresh: () => void;
 }
 
+const getSpecialtyBadgeStyle = (specialty: string): React.CSSProperties => {
+  if (specialty === 'surgery') return { backgroundColor: '#1d4ed8', color: '#ffffff', borderColor: '#1e40af' };
+  if (specialty === 'gynae-obs') return { backgroundColor: '#be185d', color: '#ffffff', borderColor: '#9d174d' };
+  return { backgroundColor: '#15803d', color: '#ffffff', borderColor: '#166534' };
+};
+
+const getStatusBadgeStyle = (status: string): React.CSSProperties => {
+  if (status === 'completed') return { backgroundColor: '#15803d', color: '#ffffff', borderColor: '#166534' };
+  if (status === 'rejected') return { backgroundColor: '#b91c1c', color: '#ffffff', borderColor: '#991b1b' };
+  return { backgroundColor: '#c2410c', color: '#ffffff', borderColor: '#9a3412' };
+};
+
 export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
   const [users, setUsers] = useState<UserData[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<UserData[]>([]);
@@ -551,12 +563,12 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
     const status = safeUserPaymentStatus(user);
     switch (status) {
       case 'completed':
-        return <Badge className="!bg-green-700 !text-white !border !border-green-800"><CheckCircle className="w-3 h-3 mr-1" />Completed</Badge>;
+        return <Badge variant="outline" className="border" style={getStatusBadgeStyle('completed')}><CheckCircle className="w-3 h-3 mr-1" />Completed</Badge>;
       case 'rejected':
-        return <Badge className="!bg-red-700 !text-white !border !border-red-800"><XCircle className="w-3 h-3 mr-1" />Rejected</Badge>;
+        return <Badge variant="outline" className="border" style={getStatusBadgeStyle('rejected')}><XCircle className="w-3 h-3 mr-1" />Rejected</Badge>;
       case 'pending':
       default:
-        return <Badge className="!bg-orange-700 !text-white !border !border-orange-800"><AlertTriangle className="w-3 h-3 mr-1" />Pending</Badge>;
+        return <Badge variant="outline" className="border" style={getStatusBadgeStyle('pending')}><AlertTriangle className="w-3 h-3 mr-1" />Pending</Badge>;
     }
   };
 
@@ -828,11 +840,11 @@ export default function SuperAdminUsersTable({ admin, onRefresh }: Props) {
                       <div className="text-gray-900">{safeUserEmail(user)}</div>
                     </TableCell>
                     <TableCell>
-                      <Badge className={`
-                        ${safeUserSpecialty(user) === 'medicine' ? '!bg-green-700 !text-white !border !border-green-800' : ''}
-                        ${safeUserSpecialty(user) === 'surgery' ? '!bg-blue-700 !text-white !border !border-blue-800' : ''}
-                        ${safeUserSpecialty(user) === 'gynae-obs' ? '!bg-pink-700 !text-white !border !border-pink-800' : ''}
-                      `}>
+                      <Badge
+                        variant="outline"
+                        className="border"
+                        style={getSpecialtyBadgeStyle(safeUserSpecialty(user))}
+                      >
                         {safeUserSpecialty(user)}
                       </Badge>
                     </TableCell>
