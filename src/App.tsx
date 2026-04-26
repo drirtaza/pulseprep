@@ -1767,12 +1767,11 @@ export default function App() {
         fullData: finalData
       });
 
-      const hasValidPassword = (finalData.password && finalData.passwordSalt) || 
-                             (finalData.passwordHash && finalData.passwordSalt);
+      const hasValidPassword = typeof finalData.password === 'string' && finalData.password.length >= 8;
       
       if (!hasValidPassword) {
         console.error('❌ Cannot create user without password data:', finalData.email);
-        alert('Error: Account creation failed due to missing password data. Please try again.');
+        alert('Error: Account creation failed because signup password was not captured. Please restart signup and try again.');
         return;
       }
 
@@ -1857,20 +1856,18 @@ export default function App() {
         throw new Error(errText || 'Failed to sync signup data to Supabase');
       }
 
-      if (typeof finalData.password === 'string' && finalData.password.length >= 8) {
-        const regRes = await fetch('/api/auth?action=register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: userWithSpecialty.email,
-            password: finalData.password,
-            fullName: userWithSpecialty.fullName
-          })
-        });
-        if (!regRes.ok) {
-          const t = await regRes.text().catch(() => '');
-          throw new Error(t || 'Failed to create login credentials. Please try again.');
-        }
+      const regRes = await fetch('/api/auth?action=register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: userWithSpecialty.email,
+          password: finalData.password,
+          fullName: userWithSpecialty.fullName
+        })
+      });
+      if (!regRes.ok) {
+        const t = await regRes.text().catch(() => '');
+        throw new Error(t || 'Failed to create login credentials. Please try again.');
       }
       
       setUserData(userWithSpecialty);
