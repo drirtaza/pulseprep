@@ -51,6 +51,22 @@ function getAction(req: VercelRequest): string {
   return '';
 }
 
+async function findAuthUserIdByEmail(email: string): Promise<string | null> {
+  const supabase = getSupabaseAdmin();
+  let page = 1;
+  const perPage = 200;
+  for (let i = 0; i < 20; i += 1) {
+    const listed = await supabase.auth.admin.listUsers({ page, perPage });
+    if (listed.error) return null;
+    const users = listed.data?.users || [];
+    const hit = users.find((u) => normalizeEmail(u.email || '') === email);
+    if (hit?.id) return hit.id;
+    if (users.length < perPage) break;
+    page += 1;
+  }
+  return null;
+}
+
 async function handleLogin(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return bad(res, 405, 'Method not allowed');
   let body: LoginBody;
@@ -141,7 +157,19 @@ async function handleRegister(req: VercelRequest, res: VercelResponse) {
   });
   if (error) {
     const msg = error.message || 'Failed to create auth user';
-    if (looksLikeAlreadyExists(msg)) return res.status(200).json({ ok: true, alreadyExists: true, message: msg });
+    if (looksLikeAlreadyExists(msg)) {
+      // Critical: if auth user already exists, force password to current signup password
+      // so login always matches what the user entered at signup.
+      const existingId = await findAuthUserIdByEmail(email);
+      if (!existingId) return bad(res, 400, 'Account exists but could not be synchronized. Please try again.');
+      const updated = await supabase.auth.admin.updateUserById(existingId, {
+        password,
+        email_confirm: true,
+        user_metadata: fullName ? { full_name: fullName, name: fullName } : undefined
+      });
+      if (updated.error) return bad(res, 400, `Failed to sync existing auth password: ${updated.error.message}`);
+      return res.status(200).json({ ok: true, alreadyExists: true, userId: existingId, message: 'Existing auth user password synced' });
+    }
     return bad(res, 400, msg);
   }
   return res.status(200).json({ ok: true, userId: data.user?.id, message: 'Auth user created' });
