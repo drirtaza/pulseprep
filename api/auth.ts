@@ -167,19 +167,7 @@ async function handlePasswordReset(req: VercelRequest, res: VercelResponse) {
   });
 
   if (error) {
-    const tempPassword = `${randomBytes(18).toString('hex')}A!9`;
-    const created = await supabase.auth.admin.createUser({ email, password: tempPassword, email_confirm: true });
-    if (created.error && !looksLikeAlreadyExists(created.error.message || '')) {
-      return res.status(200).json({ ok: true, message: 'If an account exists for this address, a reset link was sent.' });
-    }
-    const retry = await supabase.auth.admin.generateLink({
-      type: 'recovery',
-      email,
-      options: { redirectTo }
-    });
-    data = retry.data;
-    error = retry.error;
-    if (error) return res.status(200).json({ ok: true, message: 'If an account exists for this address, a reset link was sent.' });
+    return res.status(200).json({ ok: true, message: 'If an account exists for this address, a reset link was sent.' });
   }
 
   const actionLink = (data as { properties?: { action_link?: string } })?.properties?.action_link || '';

@@ -1858,22 +1858,18 @@ export default function App() {
       }
 
       if (typeof finalData.password === 'string' && finalData.password.length >= 8) {
-        try {
-          const regRes = await fetch('/api/auth?action=register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: userWithSpecialty.email,
-              password: finalData.password,
-              fullName: userWithSpecialty.fullName
-            })
-          });
-          if (!regRes.ok) {
-            const t = await regRes.text().catch(() => '');
-            console.warn('Supabase auth register (non-fatal):', t);
-          }
-        } catch (regErr) {
-          console.warn('Supabase auth register (non-fatal):', regErr);
+        const regRes = await fetch('/api/auth?action=register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: userWithSpecialty.email,
+            password: finalData.password,
+            fullName: userWithSpecialty.fullName
+          })
+        });
+        if (!regRes.ok) {
+          const t = await regRes.text().catch(() => '');
+          throw new Error(t || 'Failed to create login credentials. Please try again.');
         }
       }
       
