@@ -835,16 +835,20 @@ const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardPro
                                         <ImageIcon className="w-3 h-3 mr-1" />
                                         {attemptCount > 1 ? `Latest (Attempt #${attemptCount})` : 'Screenshot'}
                                       </Badge>
-                                      {screenshotData && (
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => handleViewImage(screenshotData)}
-                                          className="h-6 w-6 p-0"
-                                        >
-                                          <Eye className="w-3 h-3" />
-                                        </Button>
-                                      )}
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => screenshotData && handleViewImage(screenshotData)}
+                                        disabled={!screenshotData}
+                                        title={screenshotData ? 'View screenshot' : 'No screenshot available'}
+                                        className={`h-8 w-8 p-0 border ${
+                                          screenshotData
+                                            ? 'border-blue-300 text-blue-700 hover:bg-blue-50'
+                                            : 'border-gray-200 text-gray-400 cursor-not-allowed'
+                                        }`}
+                                      >
+                                        <Eye className="w-4 h-4" />
+                                      </Button>
                                     </div>
                                     {attemptCount > 1 && (
                                       <button
