@@ -250,6 +250,10 @@ export default function SignUpPage({ onNavigate, onStepComplete, selectedSpecial
       const stepData: Partial<SignUpFormData> = {
         fullName: fullName.trim(),
         email: email.toLowerCase().trim(),
+        // Keep plaintext password only in session-scoped signup state so final auth register
+        // can reliably create/sync Supabase credentials before account completion.
+        password,
+        confirmPassword: confirmPassword || password,
         passwordHash, // Store hashed password
         passwordSalt, // Store salt separately
         phone: phone.trim(),
@@ -418,7 +422,11 @@ export default function SignUpPage({ onNavigate, onStepComplete, selectedSpecial
       
     } catch (error) {
       console.error('❌ Signup error:', error);
-      setErrors({ email: 'An error occurred during signup. Please try again.' });
+      const errorMessage =
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : 'An error occurred during signup. Please try again.';
+      setErrors({ email: errorMessage });
       
       // Log signup error
       try {
