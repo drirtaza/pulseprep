@@ -18,6 +18,7 @@ import {
   getPaymentAttemptCount, 
   migratePaymentDetailsToAttempts 
 } from '../utils/paymentAttemptsUtils';
+import { uploadPaymentScreenshotDataUrl } from '../lib/uploadPaymentScreenshot';
 
 interface PaymentReUploadSectionProps {
   user: UserData;
@@ -77,9 +78,9 @@ export const PaymentReUploadSection = ({ user, onReUploadComplete }: PaymentReUp
     if (!file) return;
 
     // Use same validation as PaymentPage
-    const maxSize = (paymentSettings?.uploadRequirements?.maxFileSize || 5) * 1024 * 1024;
+    const maxSize = (paymentSettings?.uploadRequirements?.maxFileSize || 2.5) * 1024 * 1024;
     if (file.size > maxSize) {
-      alert(`File size must be less than ${paymentSettings?.uploadRequirements?.maxFileSize || 5}MB`);
+      alert(`File size must be less than ${paymentSettings?.uploadRequirements?.maxFileSize || 2.5}MB`);
       return;
     }
 
@@ -103,11 +104,29 @@ export const PaymentReUploadSection = ({ user, onReUploadComplete }: PaymentReUp
     setIsSubmitting(true);
 
     try {
+      let screenshotRef = paymentScreenshot;
+      if (paymentScreenshot.startsWith('data:')) {
+        setUploading(true);
+        try {
+          screenshotRef = await uploadPaymentScreenshotDataUrl(user.email, paymentScreenshot);
+        } catch (err) {
+          console.error('Re-upload screenshot storage failed:', err);
+          alert(
+            err instanceof Error
+              ? err.message
+              : 'Could not upload payment screenshot. Try a smaller image (max 2.5MB).'
+          );
+          return;
+        } finally {
+          setUploading(false);
+        }
+      }
+
       // FIXED: Create new payment attempt with ORIGINAL payment amount
       const newAttempt = {
-        screenshot: paymentScreenshot,
+        screenshot: screenshotRef,
         screenshotName: `payment_attempt_${nextAttemptNumber}_${Date.now()}.jpg`,
-        screenshotType: paymentScreenshot.split(',')[0],
+        screenshotType: paymentScreenshot.startsWith('data:') ? paymentScreenshot.split(',')[0] : 'image/url',
         transactionId: transactionId.trim() || undefined,
         accountTitle: accountTitle.trim() || undefined,
         // FIXED: Use original payment amount that user actually paid
@@ -144,6 +163,34 @@ export const PaymentReUploadSection = ({ user, onReUploadComplete }: PaymentReUp
 
       // Update current user storage
       localStorage.setItem('pulseprep_user_pending', JSON.stringify(updatedUser));
+
+      const paymentDetailsForDb = {
+        ...updatedUser.paymentDetails,
+        paymentScreenshot: screenshotRef,
+        paymentScreenshotName: newAttempt.screenshotName,
+        paymentScreenshotType: newAttempt.screenshotType,
+        amount: newAttempt.amount,
+        currency: newAttempt.currency,
+        uploadedAt: newAttempt.uploadedAt,
+        transactionId: newAttempt.transactionId,
+        accountTitle: newAttempt.accountTitle,
+        paymentAttempts: updatedUser.paymentAttempts
+      };
+      const sync = await fetch('/api/admin-update-user-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          status: 'pending',
+          paymentStatus: 'pending',
+          paymentDetails: paymentDetailsForDb
+        })
+      });
+      if (!sync.ok) {
+        const t = await sync.text().catch(() => '');
+        console.warn('Supabase payment_details sync after re-upload:', t);
+        alert('Screenshot saved locally but server sync failed. Please contact support if finance cannot see it.');
+      }
 
       // Notify parent component
       onReUploadComplete(updatedUser);

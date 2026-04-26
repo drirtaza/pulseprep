@@ -365,8 +365,9 @@ export const getPaymentAttemptsByStatus = (
  * Prevents repeated migration that overwrites existing attempts
  */
 export const safelyMigrateUser = (user: UserData): UserDataWithAttempts => {
-  // Only migrate if user doesn't already have attempts
-  if ((user as any).paymentAttempts) {
+  // Only skip migration if there is at least one stored attempt (empty array still needs migration)
+  const pa = (user as UserDataWithAttempts).paymentAttempts;
+  if (Array.isArray(pa) && pa.length > 0) {
     return user as UserDataWithAttempts;
   }
   

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { SignUpFormData, PageType, PaymentDetails } from '../types';
 import { getPaymentSettings, ExtendedPaymentSettings, getCurrentPaymentAmount } from '../utils/paymentSettings';
+import { uploadPaymentScreenshotDataUrl } from '../lib/uploadPaymentScreenshot';
 import { getSubscriptionSettings } from '../utils/subscriptionUtils';
 
 interface PaymentPageProps {
@@ -16,6 +17,7 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ onNavigate, onStepComplete, f
   const [phone, setPhone] = useState(formData?.phone || '');
   const [cnic, setCnic] = useState(formData?.cnic || '');
   const [uploading, setUploading] = useState(false);
+  const [isUploadingProof, setIsUploadingProof] = useState(false);
   const [paymentSettings, setPaymentSettings] = useState<ExtendedPaymentSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [subscriptionPlan, setSubscriptionPlan] = useState<any>(null);
@@ -173,8 +175,9 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ onNavigate, onStepComplete, f
     if (!paymentSettings) return "Payment settings not loaded";
     
     // Default upload requirements if not specified in new structure
+    // Cap 2.5MB so base64 + JSON fits serverless request limits; server enforces the same
     const uploadRequirements = {
-      maxFileSize: 5, // 5MB default
+      maxFileSize: 2.5,
       acceptedFormats: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'],
       requireTransactionId: false,
       requireAccountTitle: false
@@ -325,6 +328,12 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ onNavigate, onStepComplete, f
       alert('Please upload your payment screenshot');
       return;
     }
+
+    const signupEmail = (formData?.email || '').trim();
+    if (!signupEmail) {
+      alert('Missing email. Please go back and complete the previous steps.');
+      return;
+    }
     
     // Validate phone number
     if (!phone.trim()) {
@@ -351,10 +360,31 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ onNavigate, onStepComplete, f
     // Get current payment amount from payment settings
     const currentPayment = getCurrentPaymentAmount();
 
+    let screenshotRef = paymentScreenshot;
+    if (paymentScreenshot.startsWith('data:')) {
+      setIsUploadingProof(true);
+      try {
+        screenshotRef = await uploadPaymentScreenshotDataUrl(signupEmail, paymentScreenshot);
+      } catch (err) {
+        console.error('Payment screenshot upload failed:', err);
+        alert(
+          err instanceof Error
+            ? err.message
+            : 'Could not upload payment screenshot. Check your connection and try a smaller image (max 2.5MB).'
+        );
+        setIsUploadingProof(false);
+        return;
+      } finally {
+        setIsUploadingProof(false);
+      }
+    }
+
     const paymentDetails: PaymentDetails = {
       paymentMethod: 'bank-transfer',
-      paymentScreenshot,
-      paymentScreenshotType: paymentScreenshot.split(',')[0],
+      paymentScreenshot: screenshotRef,
+      paymentScreenshotType: paymentScreenshot.startsWith('data:')
+        ? paymentScreenshot.split(',')[0]
+        : 'image/url',
       paymentScreenshotName: `payment_${Date.now()}.jpg`,
       transactionId,
       accountTitle,
@@ -710,7 +740,7 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ onNavigate, onStepComplete, f
                       required
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Max file size: 5MB. Accepted formats: JPEG, JPG, PNG, WebP
+                      Max file size: 2.5MB. Accepted formats: JPEG, JPG, PNG, WebP
                     </p>
                   </div>
 
@@ -772,7 +802,7 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ onNavigate, onStepComplete, f
                 </button>
                 <button
                   type="submit"
-                  disabled={!paymentScreenshot || uploading || !phone.trim() || !cnic.trim()}
+                  disabled={!paymentScreenshot || uploading || isUploadingProof || !phone.trim() || !cnic.trim()}
                   className={`px-6 py-2 rounded-lg ${
                     paymentScreenshot && !uploading && phone.trim() && cnic.trim()
                       ? 'bg-blue-600 text-white hover:bg-blue-700'

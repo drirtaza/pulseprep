@@ -50,29 +50,34 @@ interface FinanceManagerDashboardProps {
   onLogout: () => void;
 }
 
-const mapApiUserToUserData = (row: any): UserData => ({
-  id: row?.id || row?.email || crypto.randomUUID(),
-  name: row?.name || row?.full_name || '',
-  fullName: row?.full_name || row?.name || '',
-  email: row?.email || '',
-  specialty: row?.specialty === 'surgery' || row?.specialty === 'gynae-obs' ? row.specialty : 'medicine',
-  studyMode: 'regular',
-  registrationDate: row?.registration_date || row?.created_at || new Date().toISOString(),
-  phone: row?.phone || '',
-  cnic: row?.cnic || '',
-  paymentStatus:
-    row?.payment_status === 'completed' || row?.payment_status === 'approved'
-      ? 'completed'
-      : row?.payment_status === 'rejected'
-        ? 'rejected'
-        : 'pending',
-  paymentDetails: row?.payment_details || {},
-  status: row?.status || 'pending',
-  paymentAttempts: [],
-  emailVerified: Boolean(row?.email_verified),
-  emailVerificationAttempts: 0,
-  emailVerificationStatus: row?.email_verified ? 'verified' : 'pending'
-});
+const mapApiUserToUserData = (row: any): UserData => {
+  const pd = row?.payment_details && typeof row.payment_details === 'object' ? row.payment_details : {};
+  const attemptsFromDetails = (pd as { paymentAttempts?: unknown }).paymentAttempts;
+  const paymentAttempts = Array.isArray(attemptsFromDetails) ? attemptsFromDetails : [];
+  return {
+    id: row?.id || row?.email || crypto.randomUUID(),
+    name: row?.name || row?.full_name || '',
+    fullName: row?.full_name || row?.name || '',
+    email: row?.email || '',
+    specialty: row?.specialty === 'surgery' || row?.specialty === 'gynae-obs' ? row.specialty : 'medicine',
+    studyMode: 'regular',
+    registrationDate: row?.registration_date || row?.created_at || new Date().toISOString(),
+    phone: row?.phone || '',
+    cnic: row?.cnic || '',
+    paymentStatus:
+      row?.payment_status === 'completed' || row?.payment_status === 'approved'
+        ? 'completed'
+        : row?.payment_status === 'rejected'
+          ? 'rejected'
+          : 'pending',
+    paymentDetails: pd,
+    status: row?.status || 'pending',
+    paymentAttempts,
+    emailVerified: Boolean(row?.email_verified),
+    emailVerificationAttempts: 0,
+    emailVerificationStatus: row?.email_verified ? 'verified' : 'pending'
+  };
+};
 
 const FinanceManagerDashboard = ({ admin, onLogout }: FinanceManagerDashboardProps) => {
   const [pendingPayments, setPendingPayments] = useState<UserData[]>([]);
